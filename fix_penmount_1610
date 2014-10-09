@@ -1,0 +1,104 @@
+From 52c2b2774a09f502511198bd358552a4ad982d58 Mon Sep 17 00:00:00 2001
+From: Lam Le <lam.le@wapice.com>
+Date: Tue, 11 Mar 2014 09:19:56 +0200
+Subject: [PATCH] Fix touch signal to work with PenMount 1610 CB
+
+Changes:
+- Touch action is endded when within a SYN_REPORT there is no
+ABS_X or ABS_Y and the pen down signal (BTN_TOUCH BTN_LEFT , value == 1)
+is not called
+- EV_ABS ABS_MT_WIDTH_MINOR is added as a pressure signal.
+---
+ plugins/input-raw.c | 43 +++++++++++++++++++++++++++----------------
+ 1 file changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/plugins/input-raw.c b/plugins/input-raw.c
+index 10454da..d004c6f 100644
+--- a/plugins/input-raw.c
++++ b/plugins/input-raw.c
+@@ -140,7 +140,8 @@ static int ts_input_read(struct tslib_module_info *inf,
+ 	struct input_event ev;
+ 	int ret = nr;
+ 	int total = 0;
+-	int pen_up = 0;
++	int isPenDownCalled = 0;
++	int isABSCalled = 0;
+ 
+ 	if (i->sane_fd == 0)
+ 		i->sane_fd = check_fd(i);
+@@ -161,40 +162,49 @@ static int ts_input_read(struct tslib_module_info *inf,
+ 				switch (ev.code) {
+ 				case BTN_TOUCH:
+ 				case BTN_LEFT:
+-					if (ev.value == 0)
+-						pen_up = 1;
++					if (ev.value == 1)
++					{
++						isPenDownCalled = 1;
++					}
+ 					break;
+ 				}
+ 				break;
+ 			case EV_SYN:
+-				if (ev.code == SYN_REPORT) {
++				if (ev.code == SYN_REPORT)
++				{
+ 					/* Fill out a new complete event */
+-					if (pen_up) {
++					if (!isABSCalled && !isPenDownCalled)
++					{
+ 						samp->x = 0;
+ 						samp->y = 0;
+ 						samp->pressure = 0;
+-						pen_up = 0;
+-					} else {
++						isPenDownCalled = 0;
++						isABSCalled = 0;
++					}
++					else
++					{
+ 						samp->x = i->current_x;
+ 						samp->y = i->current_y;
+ 						samp->pressure = i->current_p;
+-				}
+-				samp->tv = ev.time;
+-	#ifdef DEBUG
+-				fprintf(stderr, "RAW---------------------> %d %d %d %d.%d\n",
+-						samp->x, samp->y, samp->pressure, samp->tv.tv_sec,
+-						samp->tv.tv_usec);
+-	#endif /* DEBUG */
+-				samp++;
+-				total++;
++					}
++					samp->tv = ev.time;
++#ifdef DEBUG
++					fprintf(stderr, "RAW---------------------> %d %d %d %d.%d\n",
++							samp->x, samp->y, samp->pressure, samp->tv.tv_sec,
++							samp->tv.tv_usec);
++#endif /* DEBUG */
++					samp++;
++					total++;
+ 				}
+ 				break;
+ 			case EV_ABS:
+ 				switch (ev.code) {
+ 				case ABS_X:
++					isABSCalled = 1;
+ 					i->current_x = ev.value;
+ 					break;
+ 				case ABS_Y:
++					isABSCalled = 1;
+ 					i->current_y = ev.value;
+ 					break;
+ 				case ABS_MT_POSITION_X:
+@@ -204,6 +214,7 @@ static int ts_input_read(struct tslib_module_info *inf,
+ 					i->current_y = ev.value;
+ 					break;
+ 				case ABS_PRESSURE:
++				case ABS_MT_WIDTH_MINOR:
+ 					i->current_p = ev.value;
+ 					break;
+ 				}
+-- 
+2.1.0
+
